@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+  <meta name="description" content="Laboratorio Holográfico 3D & WebXR para aprender Árboles de Decisión de Machine Learning desde cero hasta Random Forest en Meta Quest 3 y navegador." />
+  <meta name="theme-color" content="#030711" />
+  <meta property="og:title" content="STARK ML LAB · Árboles de Decisión 3D / Meta Quest 3" />
+  <meta property="og:description" content="Objeto interactivo 3D y Realidad Mixta (WebXR) con voz J.A.R.V.I.S. que explica paso a paso cómo funciona un Árbol de Decisión CART desde cero." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+  <link rel="manifest" href="./manifest.json" />
+  <title>STARK ML LAB · Árbol de Decisión 3D & WebXR (Meta Quest 3)</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700;800&family=Orbitron:wght@600;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/stark-hud.css" />
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- ===================================================================== -->
+  <!-- OVERLAY DE ARRANQUE STARK (DESBLOQUEA AUDIO EN QUEST 3 Y NAVEGADORES) -->
+  <!-- ===================================================================== -->
+  <div id="jarvis-boot-overlay">
+    <div class="boot-reactor">
+      <svg class="spin-slow" viewBox="0 0 200 200">
+        <circle cx="100" cy="100" r="90" fill="none" stroke="#0ea5e9" stroke-width="2" stroke-dasharray="18 8 4 8" opacity="0.75" />
+        <circle cx="100" cy="100" r="76" fill="none" stroke="#00f0ff" stroke-width="1.5" stroke-dasharray="40 14" opacity="0.55" />
+      </svg>
+      <svg class="spin-rev" viewBox="0 0 200 200">
+        <circle cx="100" cy="100" r="82" fill="none" stroke="#38bdf8" stroke-width="3" stroke-dasharray="12 20" opacity="0.9" />
+        <polygon points="100,22 168,61 168,139 100,178 32,139 32,61" fill="none" stroke="#00f0ff" stroke-width="1.6" opacity="0.65" />
+      </svg>
+      <div class="boot-core">
+        <span class="font-stark" style="font-size:11px; color:#fff; font-weight:900;">MK-CART</span>
+        <span class="font-mono-tech" style="font-size:12px; color:#00f0ff; font-weight:800;">XR 3D</span>
+      </div>
+    </div>
+
+    <div class="boot-card">
+      <div class="boot-sub font-mono-tech">STARK ML TACTICAL LAB · META QUEST 3 & WEBXR</div>
+      <h1 class="boot-title font-stark">FORJA HOLOGRÁFICA DE ÁRBOLES DE DECISIÓN</h1>
+      <p class="boot-desc">
+        Viaja <strong>desde cero absoluto</strong> hasta dominar cómo una inteligencia artificial parte el espacio 3D, mide la Impureza Gini, evita el Overfitting y toma decisiones en vivo. Incluye narración guiada por voz <strong>J.A.R.V.I.S.</strong> y modo inmersivo para <strong>Meta Quest 3</strong>.
+      </p>
+      <button id="btn-boot-start" class="btn-boot-start font-stark">
+        ⚡ INICIALIZAR HOLOGRAMA Y VOZ J.A.R.V.I.S.
+      </button>
+    </div>
+  </div>
+
+  <!-- LIENZO 3D / WEBXR -->
+  <canvas id="xr-canvas"></canvas>
+  <div class="stark-scanlines"></div>
+
+  <!-- NOTIFICACIÓN FLOTANTE -->
+  <div id="stark-toast" class="font-mono-tech"></div>
+
+  <!-- ===================================================================== -->
+  <!-- HEADER SUPERIOR STARK                                                 -->
+  <!-- ===================================================================== -->
+  <header class="stark-header glass-panel">
+    <div class="brand-group">
+      <button id="btn-reactor-reset" class="reactor-btn" title="Re-centrar Holograma 3D">
+        <svg class="spin-slow" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" stroke-width="4" stroke-dasharray="14 8" />
+        </svg>
+        <span class="font-stark" style="font-size:10px; font-weight:900;">ML</span>
+      </button>
+      <div style="min-width:0;">
+        <div class="brand-badges">
+          <span class="badge-pill badge-cyan font-mono-tech">STARK CART-X9</span>
+          <span class="badge-pill badge-emerald font-mono-tech">META QUEST 3 · WEBXR</span>
+        </div>
+        <h2 class="brand-title font-stark">Árbol de Decisión Interactivo 3D · De 0 a Maestro</h2>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button id="btn-toggle-left" class="hud-btn" title="Mostrar/Ocultar Ruta Guiada">◀ Ruta</button>
+
+      <button id="btn-enter-ar" class="hud-btn hud-btn-xr" title="Abrir en Realidad Mixta Passthrough (Meta Quest 3)">
+        🥽 Passthrough MR
+      </button>
+      <button id="btn-enter-vr" class="hud-btn hud-btn-vr" title="Abrir en Holodeck VR Inmersivo">
+        🌌 Holodeck VR
+      </button>
+
+      <button id="btn-jarvis-header" class="hud-btn hud-btn-active" title="Reproducir o pausar narración de voz J.A.R.V.I.S.">
+        <span class="voice-spectrum" aria-hidden="true">
+          <span class="voice-bar"></span>
+          <span class="voice-bar"></span>
+          <span class="voice-bar"></span>
+          <span class="voice-bar"></span>
+          <span class="voice-bar"></span>
+          <span class="voice-bar"></span>
+        </span>
+        <span id="jarvis-btn-label">Voz J.A.R.V.I.S.</span>
+      </button>
+
+      <button id="btn-toggle-sfx" class="hud-btn hud-btn-active font-mono-tech" title="Activar/Silenciar efectos de sonido">
+        🎛️ SFX
+      </button>
+      <button id="btn-toggle-hud" class="hud-btn hud-btn-active" title="Ocultar/Mostrar HUD (Tecla H)">
+        👁️ HUD
+      </button>
+      <button id="btn-open-quest-guide" class="hud-btn" title="Controles en Meta Quest 3 y despliegue">
+        ❓ Quest 3
+      </button>
+      <button id="btn-toggle-right" class="hud-btn" title="Mostrar/Ocultar Inspector Matemático">Inspector ▶</button>
+    </div>
+  </header>
+
+  <!-- ===================================================================== -->
+  <!-- PANEL IZQUIERDO: RUTA GUIADA DESDE 0 + EXPERIMENTOS POR ETAPA         -->
+  <!-- ===================================================================== -->
+  <aside id="left-panel" class="side-panel glass-panel stark-corner-box">
+    <div class="panel-head">
+      <div class="card-kicker font-mono-tech" style="margin-bottom:6px;">Ruta de Aprendizaje (9 Etapas)</div>
+      <div id="stage-selector-grid" class="stage-grid"></div>
+    </div>
+
+    <div class="panel-scroll">
+      <div class="stark-card">
+        <div id="stage-badge-kicker" class="card-kicker font-mono-tech">NIVEL 0</div>
+        <h3 id="stage-title-text" class="card-title font-stark">Cargando etapa...</h3>
+        <p id="stage-plain-text" class="card-body"></p>
+        <div id="stage-formula-text" class="formula-box font-mono-tech"></div>
+      </div>
+
+      <div class="challenge-box">
+        <strong>🎯 Misión Interactiva:</strong>
+        <span id="stage-challenge-text"></span>
+      </div>
+
+      <div id="stage-controls-container"></div>
+    </div>
+  </aside>
+
+  <!-- ===================================================================== -->
+  <!-- PANEL DERECHO: TELEMETRÍA EN VIVO + INSPECTOR MATEMÁTICO DE NODOS     -->
+  <!-- ===================================================================== -->
+  <aside id="right-panel" class="side-panel glass-panel stark-corner-box">
+    <div class="panel-head">
+      <div class="card-kicker font-mono-tech" style="margin-bottom:4px;">Telemetría del Modelo CART</div>
+      <div class="metrics-grid">
+        <div class="metric-cell">
+          <div class="metric-lbl font-mono-tech">Train Acc</div>
+          <div id="m-train-acc" class="metric-val font-mono-tech" style="color:#00f0ff;">--%</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-lbl font-mono-tech">Test Acc (Real)</div>
+          <div id="m-test-acc" class="metric-val font-mono-tech" style="color:#10b981;">--%</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-lbl font-mono-tech">Nodos</div>
+          <div id="m-nodes-count" class="metric-val font-mono-tech">--</div>
+        </div>
+        <div class="metric-cell">
+          <div class="metric-lbl font-mono-tech">Profundidad</div>
+          <div id="m-depth-val" class="metric-val font-mono-tech">--</div>
+        </div>
+      </div>
+      <div id="overfit-alert" class="overfit-banner" style="display:none;"></div>
+    </div>
+
+    <div class="panel-scroll">
+      <div id="gain-chart-card" class="stark-card" style="display:none;">
+        <div class="card-kicker font-mono-tech">Curva de Ganancia Gini (Láser CART)</div>
+        <canvas id="gain-chart" width="308" height="120"></canvas>
+        <p class="card-body" style="font-size:11px; margin-top:6px; color:#94a3b8;">
+          Punto <strong style="color:#10b981;">verde</strong> = corte óptimo automático. Línea <strong style="color:#facc15;">amarilla</strong> = posición del láser 3D.
+        </p>
+      </div>
+
+      <div class="stark-card">
+        <div class="card-kicker font-mono-tech">Inspector Matemático (Toca un Nodo 3D)</div>
+        <div id="node-inspector-body"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- SUBTÍTULOS FLOTANTES -->
+  <div id="caption-pill"></div>
+
+  <!-- ===================================================================== -->
+  <!-- DOCK INFERIOR: NAVEGACIÓN DE ETAPAS + AUDIO + VISTAS 3D               -->
+  <!-- ===================================================================== -->
+  <footer class="stark-dock glass-panel">
+    <div class="dock-nav">
+      <button id="btn-prev-stage" class="hud-btn">◀ Anterior</button>
+      <span id="dock-stage-label" class="font-mono-tech" style="font-size:12px; font-weight:800; color:#00f0ff;">Etapa 0/8</span>
+      <button id="btn-next-stage" class="hud-btn hud-btn-active">Siguiente ▶</button>
+    </div>
+
+    <div class="dock-center">
+      <button id="btn-dock-play" class="hud-btn hud-btn-active" style="min-width:136px; justify-content:center;">
+        ▶ Escuchar Voz
+      </button>
+      <div class="audio-progress-wrap">
+        <div class="audio-progress-track">
+          <div id="audio-progress-fill" class="audio-progress-fill"></div>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:10px; color:#94a3b8;" class="font-mono-tech">
+          <span>NARRADOR J.A.R.V.I.S. (ES-MX)</span>
+          <span id="audio-time-label">0:00 / 0:00</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="dock-view-tools">
+      <button class="hud-btn hud-btn-active" data-layout="dual" title="Cubo de Datos + Árbol 3D sincronizados">Doble 3D</button>
+      <button class="hud-btn" data-layout="cube" title="Solo Cubo de Características 3D">Cubo</button>
+      <button class="hud-btn" data-layout="tree" title="Solo Árbol Holográfico 3D">Árbol</button>
+      <button id="btn-autorotate" class="hud-btn" title="Rotación orbital automática">⟳ Giro</button>
+      <button id="btn-reset-cam" class="hud-btn" title="Recentrar vista">🎯</button>
+    </div>
+  </footer>
+
+  <!-- ===================================================================== -->
+  <!-- MODAL GUÍA META QUEST 3 Y DESPLIEGUE GITHUB PAGES                     -->
+  <!-- ===================================================================== -->
+  <div id="modal-quest-guide" class="modal-backdrop hidden">
+    <div class="modal-card glass-panel stark-corner-box">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px;">
+        <h3 class="font-stark" style="margin:0; font-size:18px; color:#00f0ff;">
+          🥽 Guía de Uso en Meta Quest 3 (Solo Navegador)
+        </h3>
+        <button id="btn-close-quest-guide" class="hud-btn">✕ Cerrar</button>
+      </div>
+
+      <div class="stark-card" style="margin-bottom:10px;">
+        <div class="card-kicker font-mono-tech">1. Cómo abrirlo en tus Meta Quest 3</div>
+        <p class="card-body">
+          Abre el navegador integrado <strong>Meta Quest Browser</strong> e ingresa la URL HTTPS de tu GitHub Pages. No necesitas instalar ninguna app ni cable PCVR.
+        </p>
+      </div>
+
+      <div class="stark-card" style="margin-bottom:10px;">
+        <div class="card-kicker font-mono-tech">2. Dos formas de verlo dentro del visor</div>
+        <ul class="card-body" style="padding-left:18px; margin:6px 0;">
+          <li><strong>Ventana Espacial Curva (2D/3D):</strong> Agranda la ventana del navegador; arrastra con el gatillo para orbitar el holograma y toca cualquier botón o nodo.</li>
+          <li><strong>Inmersivo Realidad Mixta / VR (WebXR):</strong> Pulsa <strong>"🥽 Passthrough MR"</strong> para proyectar el árbol holográfico flotando en tu habitación real, o <strong>"🌌 Holodeck VR"</strong> para entrar al laboratorio virtual.</li>
+        </ul>
+      </div>
+
+      <div class="stark-card">
+        <div class="card-kicker font-mono-tech">3. Controles dentro de WebXR (Mandos o Manos)</div>
+        <ul class="card-body" style="padding-left:18px; margin:6px 0;">
+          <li><strong>Gatillo (Trigger) o Pellizco de Mano:</strong> Selecciona nodos del árbol, esferas del cubo o los botones de la consola holográfica flotante 3D.</li>
+          <li><strong>Botón Lateral Grip (Squeeze):</strong> Mantén presionado y mueve la mano para rotar o ajustar la altura del holograma frente a ti.</li>
+          <li><strong>Caminar en Roomscale:</strong> Acércate físicamente al Árbol o asómate dentro de las paredes láser del Cubo 3D.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

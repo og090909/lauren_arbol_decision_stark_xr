@@ -1,0 +1,16 @@
+{
+  "name": "STARK ML LAB · Árboles de Decisión 3D / WebXR",
+  "short_name": "CART XR 3D",
+  "description": "Objeto interactivo holográfico 3D y WebXR para aprender Árboles de Decisión ML desde cero en Meta Quest 3.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#030711",
+  "theme_color": "#030711",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
