@@ -8,8 +8,9 @@ import {
   evaluateForestAccuracy,
   evaluateFeatureSplits,
   denormalizeValue,
-  computeGini,
-  computeEntropy
+  computeEntropy,
+  computeFeatureImportances,
+  computeConfusionMatrix
 } from "./cart-engine.js";
 import { STAGES } from "./curriculum.js";
 import { StarkAudioEngine } from "./audio-engine.js";
@@ -46,11 +47,13 @@ const state = {
 
   // UI & Layout
   layoutMode: "dual", // "dual" | "cube" | "tree"
+  cameraPreset: "general",
   autoRotate: false,
   hudVisible: true,
   leftCollapsed: false,
   rightCollapsed: false,
   audioAutoPlay: true,
+  rightCanvasTab: "diag", // "diag" | "code"
 
   // Modelo entrenado actual
   trainSamples: [],
@@ -116,12 +119,10 @@ function rebuildModelAndScene() {
     state.testAcc = evaluateAccuracy(state.tree, state.testSamples);
   }
 
-  // Asegurar que el nodo seleccionado siga existiendo
   if (!state.tree.nodes.some((n) => n.id === state.selectedNodeId)) {
     state.selectedNodeId = "N0";
   }
 
-  // Calcular candidatos de corte para el Escáner Láser CART (Etapa 3)
   state.laserScanData = evaluateFeatureSplits(
     state.trainSamples,
     state.laserAxis,
@@ -146,10 +147,8 @@ function rebuildModelAndScene() {
     selectedNodeId: state.selectedNodeId
   });
 
-  // Simulador Gini en Etapa 2
   scene3d.setPurityDemo(state.stageIdx === 2, state.purityMixRatio);
 
-  // Escáner láser en Etapa 3
   const laserActive = state.stageIdx === 3;
   scene3d.setLaserSweep(
     laserActive,
@@ -161,6 +160,7 @@ function rebuildModelAndScene() {
 
   renderMetricsHUD();
   renderInspectorHUD();
+  renderCanvasDiagAndCode();
   drawGainChart();
   syncXRSlate();
 }
@@ -203,13 +203,12 @@ function goToStage(idx, shouldPlayAudio = true) {
   clearTimeout(autoProbeTimeout);
   scene3d?.stopProbeAnim();
 
-  // Aplicar configuración pedagógica de la etapa
   state.showPlanes = stage.sceneConfig.showPlanes;
   state.forestMode = stage.sceneConfig.forestMode;
   state.includeNoise = stage.sceneConfig.includeNoise;
 
   if (clamped === 6) {
-    state.maxDepth = 6; // Mostrar Overfitting de inmediato en Etapa 6
+    state.maxDepth = 6;
   } else if (clamped === 3) {
     state.maxDepth = 1;
     state.laserAxis = 1;
@@ -220,7 +219,6 @@ function goToStage(idx, shouldPlayAudio = true) {
     state.maxDepth = 4;
   }
 
-  // En Etapas 0..7 mantenemos Exoplanetas para coherencia narrativa si el usuario no está en Sandbox
   if (clamped < 7 && state.datasetId !== "exoplanets") {
     state.datasetId = "exoplanets";
     state.probeValues = [...DATASETS.exoplanets.defaultProbe];
@@ -235,6 +233,10 @@ function goToStage(idx, shouldPlayAudio = true) {
   renderLeftStageContent();
   rebuildModelAndScene();
 
+  if (stage.sceneConfig.cameraPreset) {
+    setActiveCameraPreset(stage.sceneConfig.cameraPreset);
+  }
+
   $("caption-pill").textContent = stage.narrationText;
   updateDockControls();
 
@@ -245,12 +247,20 @@ function goToStage(idx, shouldPlayAudio = true) {
   if (stage.sceneConfig.autoProbe) {
     autoProbeTimeout = setTimeout(() => {
       triggerProbeLaunch();
-    }, 900);
+    }, 400);
   }
 }
 
+function setActiveCameraPreset(preset) {
+  state.cameraPreset = preset;
+  document.querySelectorAll("[data-cam]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.cam === preset);
+  });
+  scene3d?.setCameraPreset(preset);
+}
+
 // ============================================================================
-// RENDERIZADO DE LA INTERFAZ STARK HUD
+// RENDERIZADO DE LA INTERFAZ CHATGPT SPATIAL
 // ============================================================================
 
 function renderStageSelector() {
@@ -285,27 +295,26 @@ function renderLeftStageContent() {
 
   const ctrlBox = $("stage-controls-container");
 
-  // Controles contextuales por etapa para máxima claridad didáctica
   if (state.stageIdx === 0 || state.stageIdx === 1) {
     ctrlBox.innerHTML = `
       <div class="stark-card">
-        <div class="card-kicker font-mono-tech">Leyenda del Cubo 3D (${ds.name})</div>
-        <div style="display:flex; flex-direction:column; gap:6px; font-size:12px;">
+        <div class="card-kicker">Clases en la Cámara 3D (${ds.name})</div>
+        <div style="display:flex; flex-direction:column; gap:7px; font-size:12.5px;">
           ${ds.classes
             .map(
               (c) => `
             <div style="display:flex; align-items:center; justify-content:space-between;">
-              <span style="display:flex; align-items:center; gap:7px;">
-                <span style="width:11px; height:11px; border-radius:50%; background:${c.cssColor}; box-shadow:0 0 8px ${c.cssColor};"></span>
+              <span style="display:flex; align-items:center; gap:8px;">
+                <span style="width:10px; height:10px; border-radius:50%; background:${c.cssColor}; box-shadow:0 0 10px ${c.cssColor};"></span>
                 <strong>${c.name}</strong>
               </span>
-              <span class="font-mono-tech" style="color:#94a3b8; font-size:11px;">Clase y=${c.id}</span>
+              <span class="font-mono-tech" style="color:#8e8e93; font-size:11px;">y = ${c.id}</span>
             </div>`
             )
             .join("")}
         </div>
-        <button id="btn-quick-next-1" class="action-btn" style="margin-top:10px;">
-          Continuar a Etapa ${state.stageIdx + 1} ▶
+        <button id="btn-quick-next-1" class="action-btn" style="margin-top:11px;">
+          Continuar a Etapa ${state.stageIdx + 1} →
         </button>
       </div>
     `;
@@ -320,10 +329,10 @@ function renderLeftStageContent() {
     const ent = computeEntropy([p1 * 100, p2 * 100], 100);
     ctrlBox.innerHTML = `
       <div class="stark-card">
-        <div class="card-kicker font-mono-tech">Laboratorio de Pureza Gini</div>
+        <div class="card-kicker">Simulador de Pureza Gini</div>
         <div class="control-row">
           <div class="control-label-row">
-            <span>Proporción Cian vs Coral</span>
+            <span>Proporción Esmeralda vs Coral</span>
             <strong class="font-mono-tech" id="lbl-purity-pct">${Math.round(p1 * 100)}% / ${Math.round(p2 * 100)}%</strong>
           </div>
           <input id="slider-purity" type="range" min="0" max="100" value="${Math.round(p1 * 100)}" />
@@ -348,7 +357,7 @@ function renderLeftStageContent() {
   } else if (state.stageIdx === 3) {
     ctrlBox.innerHTML = `
       <div class="stark-card">
-        <div class="card-kicker font-mono-tech">Escáner Láser CART (Eje Activo)</div>
+        <div class="card-kicker">Escáner de Corte CART (Eje Activo)</div>
         <div class="seg-group">
           ${ds.features
             .map(
@@ -365,12 +374,12 @@ function renderLeftStageContent() {
         </div>
         <div class="control-row" id="manual-laser-row" style="display:${state.laserManual ? "flex" : "none"};">
           <div class="control-label-row">
-            <span>Mover Láser</span>
+            <span>Posición del Plano</span>
             <strong class="font-mono-tech" id="lbl-manual-thr">--</strong>
           </div>
           <input id="slider-manual-laser" type="range" min="-95" max="95" value="${Math.round(state.laserManualNorm * 100)}" />
         </div>
-        <div class="formula-box font-mono-tech" id="lbl-laser-readout">Calculando mejor corte...</div>
+        <div class="formula-box font-mono-tech" id="lbl-laser-readout">Evaluando puntos de corte...</div>
       </div>
     `;
     ctrlBox.querySelectorAll("[data-axis]").forEach((btn) => {
@@ -407,9 +416,9 @@ function renderLeftStageContent() {
   } else if (state.stageIdx === 4) {
     ctrlBox.innerHTML = `
       <div class="stark-card">
-        <div class="card-kicker font-mono-tech">Explorar Ramas Recursivas</div>
+        <div class="card-kicker">Explorar Sub-regiones 3D</div>
         <p class="card-body" style="margin-bottom:8px;">
-          Haz clic en cualquier nodo del árbol o usa estos saltos rápidos para ver su sub-caja 3D en el Cubo:
+          Toca cualquier nodo en 3D o usa estos accesos directos para iluminar su caja ortogonal en el Cubo:
         </p>
         <div class="seg-group">
           <button class="seg-btn" data-jump-node="N0">Raíz N0</button>
@@ -437,7 +446,7 @@ function renderLeftStageContent() {
     ctrlBox.innerHTML = `
       ${isSandbox ? renderSandboxControlsHTML(ds) : ""}
       <div class="stark-card">
-        <div class="card-kicker font-mono-tech">${isForest ? "Sonda de Votación (Bosque)" : "Simulador de Sonda en Vivo"}</div>
+        <div class="card-kicker">${isForest ? "Simulador de Votación (Bosque)" : "Lanzador de Sonda de Inferencia"}</div>
         ${f
           .map(
             (feat, idx) => `
@@ -452,10 +461,10 @@ function renderLeftStageContent() {
           .join("")}
         <div class="seg-group-2" style="margin-top:10px;">
           <button id="btn-launch-probe" class="action-btn">🚀 Lanzar Sonda</button>
-          <button id="btn-rand-probe" class="seg-btn">🎲 Aleatorio</button>
+          <button id="btn-rand-probe" class="seg-btn">🎲 Muestra Azar</button>
         </div>
         <div id="probe-trace-box" class="formula-box font-mono-tech" style="margin-top:8px;">
-          Ajusta los valores y lanza la sonda por el árbol 3D.
+          Ajusta las variables y lanza la sonda por el árbol 3D.
         </div>
       </div>
     `;
@@ -480,7 +489,7 @@ function renderLeftStageContent() {
   } else if (state.stageIdx === 6) {
     ctrlBox.innerHTML = `
       <div class="stark-card">
-        <div class="card-kicker font-mono-tech">Control de Poda (Overfitting Lab)</div>
+        <div class="card-kicker">Regularización y Poda (max_depth)</div>
         <div class="control-row">
           <div class="control-label-row">
             <span>Profundidad Máxima (max_depth)</span>
@@ -493,8 +502,8 @@ function renderLeftStageContent() {
           <button id="btn-depth-overfit" class="seg-btn">⚠️ Overfit (Depth=6)</button>
         </div>
         <div class="formula-box font-mono-tech" style="margin-top:8px;">
-          Puntos con anillo amarillo = 6 sensores corruptos (ruido).<br/>
-          Compara Train Acc vs Test Acc en el panel derecho.
+          Anillos ámbar giratorios = 6 sensores con ruido.<br/>
+          Compara Entrenamiento vs Prueba en el panel derecho.
         </div>
       </div>
     `;
@@ -525,7 +534,7 @@ function renderLeftStageContent() {
 function renderSandboxControlsHTML() {
   return `
     <div class="stark-card" style="margin-bottom:2px;">
-      <div class="card-kicker font-mono-tech">Configuración del Algoritmo CART</div>
+      <div class="card-kicker">Hiperparámetros del Modelo CART</div>
       <div class="seg-group">
         ${Object.values(DATASETS)
           .map(
@@ -625,7 +634,7 @@ function renderMetricsHUD() {
   const alertEl = $("overfit-alert");
   if (overfitGap >= 11 || (state.includeNoise && state.maxDepth >= 5)) {
     alertEl.style.display = "block";
-    alertEl.innerHTML = `<strong>⚠️ ALERTA OVERFITTING:</strong> Brecha Train (${state.trainAcc.toFixed(0)}%) vs Test (${state.testAcc.toFixed(0)}%). El árbol memorizó ruido. Reduce <code>max_depth</code> a 4.`;
+    alertEl.innerHTML = `<strong>⚠️ ALERTA OVERFITTING:</strong> Brecha Entrenamiento (${state.trainAcc.toFixed(0)}%) vs Prueba (${state.testAcc.toFixed(0)}%). El árbol memorizó ruido. Reduce <code>max_depth</code> a 4.`;
   } else {
     alertEl.style.display = "none";
   }
@@ -635,23 +644,22 @@ function renderInspectorHUD() {
   const ds = DATASETS[state.datasetId];
   const container = $("node-inspector-body");
 
-  // Si hay una muestra individual seleccionada del Cubo 3D
   if (state.selectedSample) {
     const s = state.selectedSample;
     const cls = ds.classes[s.label];
     container.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
         <span class="badge-pill badge-cyan font-mono-tech">ESFERA #${s.id}</span>
-        <button id="btn-back-to-node" class="seg-btn" style="min-height:28px; padding:2px 8px;">Ver Nodo Raíz</button>
+        <button id="btn-back-to-node" class="seg-btn" style="min-height:26px; padding:2px 8px;">Ver Nodo Raíz</button>
       </div>
-      <h3 class="card-title" style="color:${cls.cssColor}">Clase Real: ${cls.name} ${s.isNoise ? "⚠️ (Ruido)" : ""}</h3>
+      <h3 class="card-title" style="color:${cls.cssColor}">Etiqueta Real: ${cls.name} ${s.isNoise ? "⚠️ (Ruido)" : ""}</h3>
       <div class="formula-box font-mono-tech">
         ${ds.features
           .map((f, i) => `${f.label}: <strong>${s.values[i]} ${f.unit}</strong>`)
           .join("<br/>")}
       </div>
       <p class="card-body" style="margin-top:8px;">
-        Estos son los valores crudos (Features X) que definen su posición 3D dentro del cubo.
+        Observa en el Cubo 3D las 3 líneas punteadas proyectadas hacia los ejes X, Y, Z.
       </p>
     `;
     $("btn-back-to-node")?.addEventListener("click", () => {
@@ -687,7 +695,7 @@ function renderInspectorHUD() {
   container.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:6px;">
       <span class="badge-pill badge-cyan font-mono-tech">NODO ${node.id} · NIVEL ${node.depth}</span>
-      <button id="btn-speak-node" class="seg-btn" style="min-height:28px; padding:2px 9px;">🗣️ Leer Nodo</button>
+      <button id="btn-speak-node" class="seg-btn" style="min-height:26px; padding:2px 9px;">🗣️ Explicar Nodo</button>
     </div>
     <h3 class="card-title">
       ${
@@ -701,19 +709,19 @@ function renderInspectorHUD() {
       ${ds.classes
         .map(
           (c, i) => `
-        <span style="color:${c.cssColor}; font-weight:700;">
+        <span style="color:${c.cssColor}; font-weight:600;">
           ● ${c.name}: ${node.counts[i]} (${node.n ? Math.round((node.counts[i] / node.n) * 100) : 0}%)
         </span>`
         )
         .join("")}
     </div>
     <div class="formula-box font-mono-tech">
-      Total N = ${node.n}<br/>
+      Muestras N = ${node.n}<br/>
       Gini = 1 − (${probsTerms}) = <strong>${node.gini.toFixed(3)}</strong><br/>
       Entropía = <strong>${node.entropy.toFixed(3)} bits</strong><br/>
       ${
         node.isLeaf
-          ? `Motivo parada: ${stopLabel}`
+          ? `Parada: ${stopLabel}`
           : `Ganancia del Corte (Δ): <strong style="color:#34d399;">+${node.gain.toFixed(3)}</strong>`
       }
     </div>
@@ -725,8 +733,103 @@ function renderInspectorHUD() {
       : `Nodo de decisión ${node.id}. Pregunta: si ${feat.label} es menor o igual a ${node.threshold} ${feat.unit}. Impureza Gini actual ${node.gini.toFixed(2)} con ganancia de ${node.gain.toFixed(3)}.`;
     if (!audio.speakDynamic(text)) {
       audio.playNodeSelect();
-      showToast("Usa los botones de narración J.A.R.V.I.S. para audio optimizado en Quest.");
+      showToast("Usa el botón de Voz IA del dock inferior para la narración principal.");
     }
+  });
+}
+
+// ============================================================================
+// DIAGNÓSTICO AVANZADO (IMPORTANCIA + MATRIZ DE CONFUSIÓN) & CÓDIGO PYTHON
+// ============================================================================
+
+function renderCanvasDiagAndCode() {
+  const ds = DATASETS[state.datasetId];
+  const diagPane = $("canvas-diag-pane");
+  const codePane = $("canvas-code-pane");
+  if (!diagPane || !codePane) return;
+
+  // 1. Importancia de variables + Matriz de confusión en Test
+  const importances = computeFeatureImportances(state.tree, ds.features.length);
+  const cm = computeConfusionMatrix(
+    state.forestMode ? state.forest : state.tree,
+    state.testSamples,
+    ds.classes.length,
+    state.forestMode
+  );
+
+  const fiHtml = ds.features
+    .map((f, idx) => {
+      const pct = Math.round(importances[idx] * 100);
+      return `
+        <div class="fi-row">
+          <div style="display:flex; justify-content:space-between; font-size:11px;">
+            <span>${f.label}</span>
+            <strong class="font-mono-tech" style="color:#34d399;">${pct}%</strong>
+          </div>
+          <div class="fi-track">
+            <div class="fi-fill" style="width:${pct}%;"></div>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  const cmRowsHtml = ds.classes
+    .map((rowCls, rIdx) => {
+      const cells = ds.classes
+        .map((colCls, cIdx) => {
+          const val = cm[rIdx]?.[cIdx] ?? 0;
+          const isDiag = rIdx === cIdx;
+          const bg = isDiag
+            ? val > 0
+              ? "rgba(16, 163, 127, 0.25)"
+              : "rgba(255,255,255,0.03)"
+            : val > 0
+              ? "rgba(244, 63, 94, 0.22)"
+              : "rgba(255,255,255,0.03)";
+          return `<td class="cm-cell font-mono-tech" style="background:${bg};" title="Real: ${rowCls.name} → Predicho: ${colCls.name}">${val}</td>`;
+        })
+        .join("");
+      return `<tr><td style="font-size:10.5px; color:${rowCls.cssColor}; font-weight:600; padding-right:4px;">${rowCls.name.slice(0, 7)}</td>${cells}</tr>`;
+    })
+    .join("");
+
+  const cmHeadCols = ds.classes
+    .map((c) => `<th style="font-size:10px; color:${c.cssColor}; font-weight:600;">${c.name.slice(0, 6)}</th>`)
+    .join("");
+
+  diagPane.innerHTML = `
+    <div style="font-size:11px; font-weight:600; color:#ececec; margin-bottom:4px;">Importancia de Variables (Gini Gain)</div>
+    <div id="feature-importance-bars">${fiHtml}</div>
+    <div style="font-size:11px; font-weight:600; color:#ececec; margin:10px 0 3px;">Matriz de Confusión (Set de Prueba)</div>
+    <div id="confusion-matrix-wrap">
+      <table class="cm-table">
+        <thead>
+          <tr><th style="font-size:9.5px; color:#8e8e93; text-align:left;">Real \\ Pred</th>${cmHeadCols}</tr>
+        </thead>
+        <tbody>${cmRowsHtml}</tbody>
+      </table>
+    </div>
+  `;
+
+  // 2. Código Python scikit-learn generado en tiempo real
+  const pyCode = state.forestMode
+    ? `from sklearn.ensemble import RandomForestClassifier\n\nmodel = RandomForestClassifier(\n    n_estimators=5,\n    criterion="${state.criterion}",\n    max_depth=${state.maxDepth},\n    min_samples_split=${state.minSamplesSplit},\n    random_state=42\n)\nmodel.fit(X_train, y_train)\nprint(f"Test Acc: {model.score(X_test, y_test):.1%}")`
+    : `from sklearn.tree import DecisionTreeClassifier\n\nclf = DecisionTreeClassifier(\n    criterion="${state.criterion}",\n    max_depth=${state.maxDepth},\n    min_samples_split=${state.minSamplesSplit},\n    random_state=42\n)\nclf.fit(X_train, y_train)\nprint(f"Test Acc: {clf.score(X_test, y_test):.1%}")`;
+
+  codePane.innerHTML = `
+    <div class="gpt-code-card">
+      <div class="gpt-code-header font-mono-tech">
+        <span>python · scikit-learn</span>
+        <button id="btn-copy-py" class="gpt-copy-btn">📋 Copiar código</button>
+      </div>
+      <pre id="python-code-snippet" class="gpt-code-pre font-mono-tech">${pyCode}</pre>
+    </div>
+  `;
+
+  $("btn-copy-py")?.addEventListener("click", () => {
+    navigator.clipboard?.writeText(pyCode).catch(() => {});
+    showToast("Código Python scikit-learn copiado al portapapeles");
   });
 }
 
@@ -754,42 +857,38 @@ function drawGainChart(activeNormPos = null) {
 
   if (!candidates || candidates.length === 0) return;
 
-  const maxGain = Math.max(0.05, ...(candidates.map((c) => c.gain)));
+  const maxGain = Math.max(0.05, ...candidates.map((c) => c.gain));
 
-  // Rejilla de fondo
-  ctx.strokeStyle = "rgba(56, 189, 248, 0.14)";
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
   ctx.lineWidth = 1;
-  for (let y = 20; y < h; y += 25) {
+  for (let y = 20; y < h; y += 26) {
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(w, y);
     ctx.stroke();
   }
 
-  // Curva de Ganancia CART
   ctx.beginPath();
   candidates.forEach((c, i) => {
     const nx = (c.threshold - feat.min) / (feat.max - feat.min);
     const px = 12 + nx * (w - 24);
-    const py = h - 14 - (c.gain / maxGain) * (h - 32);
+    const py = h - 14 - (c.gain / maxGain) * (h - 30);
     if (i === 0) ctx.moveTo(px, py);
     else ctx.lineTo(px, py);
   });
-  ctx.strokeStyle = "#00f0ff";
+  ctx.strokeStyle = "#10a37f";
   ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  // Punto Óptimo CART
   if (best) {
     const bx = 12 + ((best.threshold - feat.min) / (feat.max - feat.min)) * (w - 24);
-    const by = h - 14 - (best.gain / maxGain) * (h - 32);
-    ctx.fillStyle = "#10b981";
+    const by = h - 14 - (best.gain / maxGain) * (h - 30);
+    ctx.fillStyle = "#34d399";
     ctx.beginPath();
     ctx.arc(bx, by, 5.5, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // Línea vertical de posición actual del láser
   if (activeNormPos !== null) {
     const lx = 12 + ((activeNormPos + 1) / 2) * (w - 24);
     ctx.strokeStyle = "#facc15";
@@ -906,13 +1005,14 @@ function updateDockControls() {
 
 function updateVoiceUI({ isPlaying }) {
   $("btn-dock-play").textContent = isPlaying ? "⏸ Pausar Voz" : "▶ Escuchar Voz";
-  $("jarvis-btn-label").textContent = isPlaying ? "J.A.R.V.I.S. Activo" : "Voz J.A.R.V.I.S.";
+  $("jarvis-btn-label").textContent = isPlaying ? "Voz Activa" : "Voz en Pausa";
 }
 
 function syncHUDVisibility() {
   $("left-panel").classList.toggle("collapsed-left", !state.hudVisible || state.leftCollapsed);
   $("right-panel").classList.toggle("collapsed-right", !state.hudVisible || state.rightCollapsed);
   $("caption-pill").style.opacity = state.hudVisible ? "1" : "0";
+  $("camera-preset-bar").style.opacity = state.hudVisible ? "1" : "0";
   $("btn-toggle-hud").classList.toggle("hud-btn-active", state.hudVisible);
 }
 
@@ -923,7 +1023,6 @@ async function handleEnterXR(mode) {
     audio.playBootChord();
     syncXRSlate();
   } catch (err) {
-    // En escritorio sin gafas VR/AR conectadas, abrimos la guía clara de Meta Quest 3
     $("modal-quest-guide").classList.remove("hidden");
     showToast(err.message || "Abre esta URL desde el navegador de tus Meta Quest 3.");
   }
@@ -935,7 +1034,7 @@ async function detectXRSupportBadges() {
     const arOk = await navigator.xr.isSessionSupported("immersive-ar");
     const vrOk = await navigator.xr.isSessionSupported("immersive-vr");
     if (arOk) $("btn-enter-ar").title = "Compatible detectado: Iniciar Passthrough MR en Meta Quest 3";
-    if (vrOk) $("btn-enter-vr").title = "Compatible detectado: Iniciar Holodeck VR";
+    if (vrOk) $("btn-enter-vr").title = "Compatible detectado: Iniciar Entorno VR";
   } catch (e) {}
 }
 
@@ -945,6 +1044,7 @@ async function detectXRSupportBadges() {
 
 function init() {
   const canvas = $("xr-canvas");
+  const hoverTooltip = $("spatial-hover-tooltip");
 
   scene3d = new StarkHologramScene(canvas, {
     onNodeSelected: (node) => {
@@ -953,7 +1053,7 @@ function init() {
       state.selectedNodeId = node.id;
       renderInspectorHUD();
       syncXRSlate();
-      showToast(`Nodo ${node.id} enfocado (Gini ${node.gini.toFixed(2)})`);
+      showToast(`Nodo ${node.id} seleccionado (Gini ${node.gini.toFixed(2)})`);
     },
     onSampleSelected: (sample) => {
       audio.playNodeSelect();
@@ -961,6 +1061,30 @@ function init() {
       renderInspectorHUD();
       const ds = DATASETS[state.datasetId];
       showToast(`Esfera #${sample.id} · ${ds.classes[sample.label].name}`);
+    },
+    onHoverObject: (data, clientX, clientY) => {
+      if (!hoverTooltip) return;
+      if (!data) {
+        hoverTooltip.classList.remove("visible");
+        return;
+      }
+      const ds = DATASETS[state.datasetId];
+      hoverTooltip.style.left = `${clientX}px`;
+      hoverTooltip.style.top = `${clientY}px`;
+      if (data.type === "sample") {
+        const s = data.sample;
+        const cls = ds.classes[s.label];
+        const coords = ds.features.map((f, i) => `${f.short}: ${s.values[i]}${f.unit}`).join(" · ");
+        hoverTooltip.innerHTML = `<strong style="color:${cls.cssColor}">● Esfera #${s.id} (${cls.name})</strong><br/><span class="font-mono-tech" style="font-size:10.5px; color:#b4b4b8;">${coords}</span>`;
+      } else if (data.type === "node") {
+        const n = data.node;
+        const maj = ds.classes[n.majorityClass];
+        const desc = n.isLeaf
+          ? `Hoja: ${maj.name} (${Math.round(n.confidence * 100)}%)`
+          : `¿${ds.features[n.featureIdx].short} ≤ ${n.threshold}${ds.features[n.featureIdx].unit}?`;
+        hoverTooltip.innerHTML = `<strong>Nodo ${n.id}</strong> · ${desc}<br/><span class="font-mono-tech" style="font-size:10.5px; color:#34d399;">Gini ${n.gini.toFixed(3)} · Muestras N=${n.n}</span>`;
+      }
+      hoverTooltip.classList.add("visible");
     },
     onLaserScanTick: (normPos) => {
       if (state.stageIdx === 3 && !state.laserManual) {
@@ -991,11 +1115,11 @@ function init() {
       }
     },
     onXRSessionEnd: () => {
-      showToast("Sesión WebXR finalizada. Regresando al visor táctico 2D/3D.");
+      showToast("Sesión WebXR finalizada.");
     }
   });
 
-  // Eventos del motor de audio + animador de espectro vocal
+  // Eventos del motor de audio + animador de espectro vocal y Orbe 3D
   audio.onStateChange = (info) => updateVoiceUI(info);
   audio.onProgress = ({ currentTime, duration }) => {
     const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -1022,14 +1146,15 @@ function init() {
     audio.unlockContext();
     audio.playBootChord();
     audio.playStageNarration(STAGES[state.stageIdx].audioFile, true);
-    showToast("J.A.R.V.I.S. en línea · Bienvenido al Laboratorio CART 3D");
+    showToast("Experiencia Espacial activa · Voz IA sincronizada");
   });
 
   // Controles Header
   $("btn-reactor-reset").addEventListener("click", () => {
     audio.playNodeSelect();
+    setActiveCameraPreset("general");
     scene3d.resetCamera();
-    showToast("Cámara y holograma re-centrados");
+    showToast("Cámara y escena 3D recentradas");
   });
 
   $("btn-toggle-left").addEventListener("click", () => {
@@ -1065,6 +1190,30 @@ function init() {
     if (e.target === $("modal-quest-guide")) $("modal-quest-guide").classList.add("hidden");
   });
 
+  // Pestañas del panel derecho (Importancia/Matriz vs Código Python)
+  $("tab-btn-diag").addEventListener("click", () => {
+    audio.playNodeSelect();
+    $("tab-btn-diag").classList.add("active");
+    $("tab-btn-code").classList.remove("active");
+    $("canvas-diag-pane").style.display = "block";
+    $("canvas-code-pane").style.display = "none";
+  });
+  $("tab-btn-code").addEventListener("click", () => {
+    audio.playNodeSelect();
+    $("tab-btn-code").classList.add("active");
+    $("tab-btn-diag").classList.remove("active");
+    $("canvas-code-pane").style.display = "block";
+    $("canvas-diag-pane").style.display = "none";
+  });
+
+  // Barra superior de ángulos de cámara 3D
+  document.querySelectorAll("[data-cam]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      audio.playNodeSelect();
+      setActiveCameraPreset(btn.dataset.cam);
+    });
+  });
+
   // Controles Dock
   $("btn-prev-stage").addEventListener("click", () => {
     audio.playNodeSelect();
@@ -1093,10 +1242,10 @@ function init() {
 
   $("btn-reset-cam").addEventListener("click", () => {
     audio.playNodeSelect();
+    setActiveCameraPreset("general");
     scene3d.resetCamera();
   });
 
-  // Atajos de teclado rápidos
   window.addEventListener("keydown", (e) => {
     if (e.key === "ArrowRight") goToStage(state.stageIdx + 1);
     else if (e.key === "ArrowLeft") goToStage(state.stageIdx - 1);
@@ -1109,11 +1258,9 @@ function init() {
     }
   });
 
-  // Arrancar en Etapa 0
   goToStage(0, false);
   detectXRSupportBadges();
 
-  // Registro PWA Service Worker para GitHub Pages
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }

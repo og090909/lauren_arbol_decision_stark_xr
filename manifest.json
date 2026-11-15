@@ -1,11 +1,11 @@
 {
-  "name": "STARK ML LAB · Árboles de Decisión 3D / WebXR",
-  "short_name": "CART XR 3D",
-  "description": "Objeto interactivo holográfico 3D y WebXR para aprender Árboles de Decisión ML desde cero en Meta Quest 3.",
+  "name": "ChatGPT Spatial ML Lab · Árboles de Decisión 3D / WebXR",
+  "short_name": "CART-4o Spatial",
+  "description": "Laboratorio espacial 3D y WebXR con estética ChatGPT para dominar Árboles de Decisión (CART) y Random Forest en Meta Quest 3.",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#030711",
-  "theme_color": "#030711",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0a0a0c",
   "icons": [
     {
       "src": "./icon.svg",

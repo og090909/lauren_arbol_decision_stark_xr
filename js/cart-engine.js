@@ -46,8 +46,8 @@ function createExoplanetDataset() {
     { key: "grav", label: "Gravedad", short: "Grav", unit: "G", min: 0.3, max: 2.2 }
   ];
   const classes = [
-    { id: 0, name: "Habitable", colorHex: 0x00f0ff, cssColor: "#00f0ff", bgRgba: "rgba(0, 240, 255, 0.18)" },
-    { id: 1, name: "Hostil", colorHex: 0xfb7185, cssColor: "#fb7185", bgRgba: "rgba(251, 113, 133, 0.18)" }
+    { id: 0, name: "Habitable", colorHex: 0x10b981, cssColor: "#10b981", bgRgba: "rgba(16, 185, 129, 0.16)" },
+    { id: 1, name: "Hostil", colorHex: 0xf43f5e, cssColor: "#f43f5e", bgRgba: "rgba(244, 63, 94, 0.16)" }
   ];
 
   // Regla subyacente clara: Temp [4..34] °C, Oxígeno [15..32] %, Gravedad [0.55..1.55] G => Habitable (0)
@@ -142,9 +142,9 @@ function createIrisDataset() {
     { key: "sl", label: "Largo Sépalo", short: "L.Sépalo", unit: "cm", min: 4.3, max: 7.9 }
   ];
   const classes = [
-    { id: 0, name: "Setosa", colorHex: 0x00f0ff, cssColor: "#00f0ff", bgRgba: "rgba(0, 240, 255, 0.18)" },
-    { id: 1, name: "Versicolor", colorHex: 0xf59e0b, cssColor: "#f59e0b", bgRgba: "rgba(245, 158, 11, 0.18)" },
-    { id: 2, name: "Virginica", colorHex: 0xa855f7, cssColor: "#a855f7", bgRgba: "rgba(168, 85, 247, 0.18)" }
+    { id: 0, name: "Setosa", colorHex: 0x10b981, cssColor: "#10b981", bgRgba: "rgba(16, 185, 129, 0.16)" },
+    { id: 1, name: "Versicolor", colorHex: 0xf59e0b, cssColor: "#f59e0b", bgRgba: "rgba(245, 158, 11, 0.16)" },
+    { id: 2, name: "Virginica", colorHex: 0xa855f7, cssColor: "#a855f7", bgRgba: "rgba(168, 85, 247, 0.16)" }
   ];
 
   // Muestras representativas fieles al clásico dataset Iris de Fisher
@@ -593,3 +593,38 @@ export function evaluateForestAccuracy(trees, samples, numClasses) {
   }
   return (correct / samples.length) * 100;
 }
+
+/**
+ * Calcula la importancia relativa de cada característica (Feature Importance)
+ * ponderando la reducción de impureza por el número de muestras en cada nodo interno.
+ */
+export function computeFeatureImportances(tree, numFeatures = 3) {
+  const imp = new Array(numFeatures).fill(0);
+  if (!tree || !tree.nodes) return [0.34, 0.33, 0.33];
+  for (const node of tree.nodes) {
+    if (!node.isLeaf && node.featureIdx !== null && node.gain > 0) {
+      imp[node.featureIdx] += node.n * node.gain;
+    }
+  }
+  const sum = imp.reduce((a, b) => a + b, 0);
+  if (sum <= 1e-9) return imp.map(() => +(1 / numFeatures).toFixed(2));
+  return imp.map((v) => +(v / sum).toFixed(3));
+}
+
+/**
+ * Calcula la Matriz de Confusión real sobre un conjunto de evaluación.
+ */
+export function computeConfusionMatrix(treeOrForest, samples, numClasses, isForest = false) {
+  const matrix = Array.from({ length: numClasses }, () => new Array(numClasses).fill(0));
+  if (!samples || !samples.length || !treeOrForest) return matrix;
+  for (const s of samples) {
+    const pred = isForest
+      ? predictForest(treeOrForest, s.values, numClasses).winner
+      : predictWithTrace(treeOrForest, s.values)?.prediction ?? 0;
+    if (s.label < numClasses && pred < numClasses) {
+      matrix[s.label][pred]++;
+    }
+  }
+  return matrix;
+}
+
